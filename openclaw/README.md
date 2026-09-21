@@ -1,52 +1,95 @@
-# OpenClaw - AI Assistant
+# OpenClaw AI Agent 运行环境模板
 
-Sandbox template for [OpenClaw](https://github.com/openclaw/openclaw), an open-source AI assistant that runs on your devices and meets you in the channels you already use.
+OpenClaw 开源 AI 编程 Agent 的沙箱运行环境，提供 Agent 网关与运行时支持。
 
-## What's Included
+## 环境说明
 
-- **Ubuntu 22.04** base image
-- **Node.js 22** (OpenClaw requires Node 22.22.3+, 24.15+, or 25.9+)
-- **OpenClaw** (`openclaw@latest`) pre-installed globally
-- Common development tools: git, curl, wget, build-essential
+本模板预装以下工具和依赖：
 
-## Environment Variables
+| 类别 | 内容 |
+|------|------|
+| **操作系统** | Ubuntu 22.04 |
+| **Node.js** | Node.js 22.x + npm（核心运行时） |
+| **Node 包** | `openclaw` |
+| **系统工具** | git、curl |
+| **端口** | 18789（Gateway） |
+| **资源配置** | 2 CPU / 4096 MB 内存 |
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `OPENAI_API_KEY` | Depends on provider | API key for OpenAI models |
-| `ANTHROPIC_API_KEY` | Depends on provider | API key for Anthropic models |
+## 安装方式
 
-OpenClaw supports multiple model providers. Set the API key for your chosen provider.
-
-## Usage
+**从本地安装：**
 
 ```bash
-# Install the template
-sbox install Serverless-Sandbox/awesome-templates//openclaw
-
-# Create a sandbox with your API key
-sbox create openclaw --env OPENAI_API_KEY=sk-...
-
-# Or set the key in your environment first
-export OPENAI_API_KEY=sk-...
-sbox create openclaw
+sbox install ./examples/templates/openclaw --registry-type local
 ```
 
-## Runtime Requirements
+**从 GitHub 安装：**
 
-- **Node.js**: 22.22.3+ (pre-installed in the image)
-- **RAM**: 6 GB+ recommended
-- **Network**: Internet access required for model API calls
+```bash
+sbox install Serverless-Sandbox/awesome-templates//openclaw
+```
 
-## Features
+## 使用示例
 
-- Gateway-based architecture connecting models, tools, and messaging channels
-- Supports WhatsApp, Telegram, Slack, Discord, Google Chat, Signal, and more
-- Tools, skills, and plugins for extensibility
-- Works with hosted and local model providers
+创建沙箱实例并传入 API Key：
 
-## References
+```bash
+sbox create --template openclaw --env ANTHROPIC_API_KEY=sk-ant-xxx
+```
 
-- [OpenClaw Documentation](https://docs.openclaw.ai)
-- [OpenClaw GitHub Repository](https://github.com/openclaw/openclaw)
-- [OpenClaw Website](https://openclaw.ai)
+也可以使用 OpenAI 作为后端：
+
+```bash
+sbox create --template openclaw --env OPENAI_API_KEY=sk-xxx
+```
+
+在沙箱中启动 OpenClaw：
+
+```bash
+sbox exec <sandbox-id> -- openclaw --help
+```
+
+使用 Python SDK：
+
+```python
+from serverless_sandbox import Sandbox
+
+sandbox = Sandbox.create(
+    template="openclaw",
+    env={"ANTHROPIC_API_KEY": "sk-ant-xxx"}
+)
+
+result = sandbox.commands.run("openclaw --version")
+print(result.stdout)
+```
+
+## 配置说明
+
+### 环境变量
+
+| 变量名 | 说明 | 必填 |
+|--------|------|------|
+| `ANTHROPIC_API_KEY` | Anthropic API 密钥 | 二选一 |
+| `OPENAI_API_KEY` | OpenAI API 密钥 | 二选一 |
+| `WORKSPACE` | 工作目录路径，默认 `/workspace` | 否 |
+
+### 端口说明
+
+| 端口 | 说明 |
+|------|------|
+| 18789 | OpenClaw Gateway 服务端口 |
+
+### 自定义配置
+
+如需在模板基础上安装额外依赖，可在创建沙箱后执行：
+
+```bash
+sbox exec <sandbox-id> -- npm install -g <package-name>
+```
+
+## 注意事项
+
+- **API Key 安全**：请勿将 API Key 硬编码到模板中，始终通过 `--env` 参数或环境变量注入。
+- **多模型支持**：OpenClaw 支持 Anthropic 和 OpenAI 等多种 LLM 后端，按需配置对应的 API Key。
+- **Gateway 端口**：默认监听 18789 端口，可通过沙箱端口映射访问。
+- **网络访问**：需要访问 LLM 提供商 API，确保沙箱具备外网连接能力。
