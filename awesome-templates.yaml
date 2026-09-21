@@ -1,4 +1,4 @@
-# Serverless Sandbox Community Templates
+# Easy Sandbox Community Templates
 #
 # A curated index of sandbox templates — official and community-contributed.
 # Anyone can add their template by submitting a PR!
@@ -20,6 +20,9 @@
 #     template_id:  Platform template ID (optional, if published to registry)
 #     capabilities: List of required sandbox capabilities (shell, files, code, terminal, ports)
 #     status:       "official" | "community" | "experimental"
+#
+# Install any template with:
+#   ebx template install Easy-Sandbox/awesome-templates//<name>
 
 templates:
   # === Official Templates ===
@@ -29,7 +32,7 @@ templates:
     repo: https://github.com/Easy-Sandbox/awesome-templates
     path: python-hello
     tags: [python, hello-world, example]
-    author: Serverless-Sandbox
+    author: Easy-Sandbox
     capabilities: [shell, files, code, ports]
     status: official
 
@@ -38,7 +41,7 @@ templates:
     repo: https://github.com/Easy-Sandbox/awesome-templates
     path: browser-automation
     tags: [browser, playwright, chromium, automation, web-scraping]
-    author: Serverless-Sandbox
+    author: Easy-Sandbox
     capabilities: [shell, files, code, ports]
     status: official
 
@@ -47,7 +50,7 @@ templates:
     repo: https://github.com/Easy-Sandbox/awesome-templates
     path: claude-code
     tags: [claude, anthropic, ai-coding, ai-agent]
-    author: Serverless-Sandbox
+    author: Easy-Sandbox
     capabilities: [shell, files, code, terminal, ports]
     status: official
 
@@ -56,7 +59,7 @@ templates:
     repo: https://github.com/Easy-Sandbox/awesome-templates
     path: codex
     tags: [codex, openai, ai-agent, code-generation]
-    author: Serverless-Sandbox
+    author: Easy-Sandbox
     capabilities: [shell, files, code, ports]
     status: official
 
@@ -65,7 +68,7 @@ templates:
     repo: https://github.com/Easy-Sandbox/awesome-templates
     path: qoder
     tags: [qoder, ai-coding, ai-agent, development]
-    author: Serverless-Sandbox
+    author: Easy-Sandbox
     capabilities: [shell, files, code, terminal, ports]
     status: official
 
@@ -74,7 +77,7 @@ templates:
     repo: https://github.com/Easy-Sandbox/awesome-templates
     path: qwen-code
     tags: [qwen, qwen-code, dashscope, ai-coding, ai-agent, deploy]
-    author: Serverless-Sandbox
+    author: Easy-Sandbox
     capabilities: [shell, files, code, ports]
     status: official
 
@@ -83,7 +86,7 @@ templates:
     repo: https://github.com/Easy-Sandbox/awesome-templates
     path: deepseek-harness
     tags: [deepseek, ai-agent, ai-coding, code-generation]
-    author: Serverless-Sandbox
+    author: Easy-Sandbox
     capabilities: [shell, files, code, ports]
     status: official
 
@@ -92,7 +95,7 @@ templates:
     repo: https://github.com/Easy-Sandbox/awesome-templates
     path: hermes-agent
     tags: [hermes, nousresearch, ai-agent, tool-calling]
-    author: Serverless-Sandbox
+    author: Easy-Sandbox
     capabilities: [shell, files, code, ports]
     status: official
 
@@ -101,7 +104,7 @@ templates:
     repo: https://github.com/Easy-Sandbox/awesome-templates
     path: node-web
     tags: [nodejs, web, express, api, javascript]
-    author: Serverless-Sandbox
+    author: Easy-Sandbox
     capabilities: [shell, files, ports]
     status: official
 
@@ -110,7 +113,7 @@ templates:
     repo: https://github.com/Easy-Sandbox/awesome-templates
     path: openclaw
     tags: [openclaw, ai-agent, ai-coding, gateway]
-    author: Serverless-Sandbox
+    author: Easy-Sandbox
     capabilities: [shell, files, ports]
     status: official
 

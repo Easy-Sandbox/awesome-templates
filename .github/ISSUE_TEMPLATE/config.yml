@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 Contributing Guide
+    url: https://github.com/Easy-Sandbox/awesome-templates/blob/main/CONTRIBUTING.md
+    about: How to author, test, and submit a template.
+  - name: 💬 Easy Sandbox Discussions
+    url: https://github.com/Easy-Sandbox/awesome-templates/discussions
+    about: Ask questions and share ideas with the community.
