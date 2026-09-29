@@ -87,6 +87,77 @@ for event in session:
 
 That's it — standard Agents API semantics, served from your own sandbox.
 
+### Quick Start with Easy Sandbox SDK
+
+The full pipeline — install the template, create a sandbox, call the API —
+works with either the `ebx` CLI or the Easy Sandbox Python SDK.
+
+#### CLI way
+
+```bash
+# 1. Install the template from the awesome-templates registry
+ebx install Easy-Sandbox/awesome-templates//codex-agent-api
+
+# 2. Create a sandbox from the template, injecting your API key
+ebx create --template codex-agent-api --env OPENAI_API_KEY=sk-xxx
+
+# 3. Find the sandbox host/port (or use `ebx sandbox list`)
+ebx list
+
+# 4. Test the API with curl
+curl http://<sandbox-host>:9000/v1/agents
+```
+
+#### Python SDK way
+
+```python
+import asyncio
+
+import httpx
+from openai import OpenAI
+
+from easy_sandbox import Sandbox
+
+
+async def main() -> None:
+    # 1. Create the sandbox from the template, injecting the API key
+    sandbox = await Sandbox.create(
+        template="codex-agent-api",
+        envs={"OPENAI_API_KEY": "sk-xxx"},
+        timeout=600,
+    )
+    try:
+        # 2. Compute the host that exposes the service on port 9000
+        base_url = sandbox.network.get_url(port=9000)
+        headers = sandbox.network.get_access_headers()  # {} unless EBX_SERVER_TOKEN is set
+
+        # Way 1 — OpenAI SDK: only the base_url changes
+        client = OpenAI(base_url=f"{base_url}/v1", api_key="sk-xxx")
+        session = client.beta.agents.sessions.create(
+            agent={"model": "codex-mini"},
+            input="Write hello world in Python",
+        )
+        print(session.status, session.output)
+
+        # Way 2 — httpx directly against the REST surface
+        resp = httpx.post(
+            f"{base_url}/v1/agents/sessions",
+            json={"agent": {"model": "codex-mini"}, "input": "Hello!"},
+            headers=headers,
+        )
+        print(resp.json())
+    finally:
+        # 3. Clean up
+        await sandbox.kill()
+
+
+asyncio.run(main())
+```
+
+> Note: in secure mode, port access requires the `X-Access-Token` header
+> returned by `sandbox.network.get_access_headers()` — the example passes it
+> to `httpx` for that reason.
+
 ### Environment Variables
 
 | Variable | Required | Default | Description |
@@ -863,6 +934,76 @@ for event in session:
 ```
 
 就这么简单——标准的 Agents API 语义，由你自己的沙箱提供服务。
+
+### Easy Sandbox SDK 快速开始
+
+从安装模板、创建沙箱到调用 API 的完整链路，既可以用 `ebx` CLI 完成，也可以
+通过 Easy Sandbox Python SDK 完成。
+
+#### CLI 方式
+
+```bash
+# 1. 从 awesome-templates 仓库安装模板
+ebx install Easy-Sandbox/awesome-templates//codex-agent-api
+
+# 2. 基于模板创建沙箱，注入 API Key
+ebx create --template codex-agent-api --env OPENAI_API_KEY=sk-xxx
+
+# 3. 查看沙箱主机与端口（也可以用 `ebx sandbox list`）
+ebx list
+
+# 4. 用 curl 测试 API
+curl http://<sandbox-host>:9000/v1/agents
+```
+
+#### Python SDK 方式
+
+```python
+import asyncio
+
+import httpx
+from openai import OpenAI
+
+from easy_sandbox import Sandbox
+
+
+async def main() -> None:
+    # 1. 基于模板创建沙箱，注入 API Key
+    sandbox = await Sandbox.create(
+        template="codex-agent-api",
+        envs={"OPENAI_API_KEY": "sk-xxx"},
+        timeout=600,
+    )
+    try:
+        # 2. 计算 9000 端口对外暴露的访问地址
+        base_url = sandbox.network.get_url(port=9000)
+        headers = sandbox.network.get_access_headers()  # 未设置 EBX_SERVER_TOKEN 时为 {}
+
+        # 方式 1 —— OpenAI SDK：只需替换 base_url
+        client = OpenAI(base_url=f"{base_url}/v1", api_key="sk-xxx")
+        session = client.beta.agents.sessions.create(
+            agent={"model": "codex-mini"},
+            input="用 Python 写一个 hello world",
+        )
+        print(session.status, session.output)
+
+        # 方式 2 —— 直接用 httpx 调用 REST 接口
+        resp = httpx.post(
+            f"{base_url}/v1/agents/sessions",
+            json={"agent": {"model": "codex-mini"}, "input": "Hello!"},
+            headers=headers,
+        )
+        print(resp.json())
+    finally:
+        # 3. 清理沙箱
+        await sandbox.kill()
+
+
+asyncio.run(main())
+```
+
+> 说明：secure 模式下端口访问需要携带 `sandbox.network.get_access_headers()`
+> 返回的 `X-Access-Token` 请求头——示例中的 `httpx` 调用正是为此传入该头。
 
 ### 环境变量
 
