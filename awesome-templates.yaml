@@ -63,6 +63,15 @@ templates:
     capabilities: [shell, files, code, ports]
     status: official
 
+  - name: codex-agent-api
+    description: "Self-hosted OpenAI Agents API compatible service powered by Codex CLI"
+    repo: https://github.com/Easy-Sandbox/awesome-templates
+    path: codex-agent-api
+    tags: [codex, openai, agents-api, ai-agent, self-hosted]
+    author: Easy-Sandbox
+    capabilities: [shell, files, code, ports]
+    status: official
+
   - name: qoder
     description: "Qoder AI coding assistant runtime with Python and Node.js integrated dev sandbox"
     repo: https://github.com/Easy-Sandbox/awesome-templates

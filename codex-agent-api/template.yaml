@@ -1,0 +1,64 @@
+name: codex-agent-api
+version: "1.0.0"
+description: "Self-hosted OpenAI Agents API compatible service powered by Codex CLI"
+author: "Easy-Sandbox"
+tags:
+  - codex
+  - openai
+  - agents-api
+  - ai-agent
+  - self-hosted
+
+base: ubuntu:22.04
+
+system_packages:
+  - python3
+  - python3-pip
+  - python3-venv
+  - git
+  - curl
+  - wget
+  - build-essential
+  - ripgrep
+  - jq
+
+python_packages:
+  - openai>=1.0
+  - rich
+  - httpx
+
+node_packages:
+  - "@openai/codex"
+
+commands:
+  - python3 -m venv /opt/venv
+  - /opt/venv/bin/pip install --upgrade pip
+
+capabilities:
+  - shell
+  - files
+  - code
+  - ports
+
+ports:
+  - 9000
+
+custom_commands:
+  agent_status:
+    cmd: "curl -s http://localhost:9000/v1/agents/sessions"
+    description: "List active Agent API sessions"
+    cwd: "/workspace"
+    timeout: 10
+
+env:
+  OPENAI_API_KEY: ""
+  CODEX_MODEL: "codex-mini"
+  AGENT_MAX_SESSIONS: "20"
+  AGENT_SESSION_TTL: "1800"
+  CODEX_SANDBOX_MODE: "true"
+  PATH: "/opt/venv/bin:$PATH"
+  WORKSPACE: "/workspace"
+
+resources:
+  cpu: 2
+  memory: 4096

@@ -16,6 +16,7 @@ coding agents, runtimes, and automation stacks.
 | [browser-automation](./browser-automation/) | Playwright + Chromium for web scraping & UI testing | shell, files, code, ports | `ebx template install Easy-Sandbox/awesome-templates//browser-automation` |
 | [claude-code](./claude-code/) | Anthropic Claude-powered AI coding assistant | shell, files, code, terminal, ports | `ebx template install Easy-Sandbox/awesome-templates//claude-code` |
 | [codex](./codex/) | OpenAI Codex CLI agent for code generation | shell, files, code, ports | `ebx template install Easy-Sandbox/awesome-templates//codex` |
+| [codex-agent-api](./codex-agent-api/) | Self-hosted OpenAI Agents API compatible service powered by Codex CLI | shell, files, code, ports | `ebx template install Easy-Sandbox/awesome-templates//codex-agent-api` |
 | [qoder](./qoder/) | Qoder AI coding assistant with Python + Node.js | shell, files, code, terminal, ports | `ebx template install Easy-Sandbox/awesome-templates//qoder` |
 | [qwen-code](./qwen-code/) | Qwen Code — Dashscope-powered deployment agent | shell, files, code, ports | `ebx template install Easy-Sandbox/awesome-templates//qwen-code` |
 | [deepseek-harness](./deepseek-harness/) | DeepSeek model-driven AI coding agent | shell, files, code, ports | `ebx template install Easy-Sandbox/awesome-templates//deepseek-harness` |
