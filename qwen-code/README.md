@@ -1,8 +1,136 @@
-# 通义千问编码 Agent 运行环境模板
+# qwen-code
+
+> [中文版](#中文) | [English](#english)
+
+---
+
+## English
+
+Sandbox runtime for the Qwen coding agent — supports qwen-code-driven autonomous deployment and provides a Python 3.11 + Node.js 22 AI coding foundation.
+
+### Environment
+
+This template comes preinstalled with the following tools and dependencies:
+
+| Category | Details |
+|----------|---------|
+| **OS** | Ubuntu 22.04 |
+| **Python** | Python 3.11 + venv (at `/opt/venv`) |
+| **Node.js** | Node.js 22.x + npm |
+| **Python packages** | `dashscope`, `openai>=1.0`, `httpx`, `rich` |
+| **Node.js packages** | `@qwen-code/qwen-code@0.23.0` |
+| **System tools** | git, curl, wget, ripgrep, jq, build-essential |
+| **Resources** | 2 CPU / 4096 MB memory |
+
+### Installation
+
+**Install from a local path:**
+
+```bash
+ebx install ./examples/templates/qwen-code --registry-type local
+```
+
+**Install from GitHub:**
+
+```bash
+ebx install Easy-Sandbox/awesome-templates//qwen-code
+```
+
+### Usage
+
+Create a sandbox instance and pass in the API key:
+
+```bash
+ebx create --template qwen-code --env DASHSCOPE_API_KEY=sk-xxx
+```
+
+Call a Qwen model inside the sandbox via the DashScope SDK:
+
+```bash
+ebx exec <sandbox-id> -- python3 -c "
+import dashscope
+from dashscope import Generation
+response = Generation.call(model='qwen-turbo', prompt='Write a quicksort algorithm')
+print(response.output.text)
+"
+```
+
+The OpenAI-compatible interface is also supported:
+
+```bash
+ebx exec <sandbox-id> -- python3 -c "
+from openai import OpenAI
+client = OpenAI(
+    api_key='your-dashscope-key',
+    base_url='https://dashscope.aliyuncs.com/compatible-mode/v1'
+)
+response = client.chat.completions.create(
+    model='qwen-turbo',
+    messages=[{'role': 'user', 'content': 'Write a quicksort'}]
+)
+print(response.choices[0].message.content)
+"
+```
+
+Using the Python SDK:
+
+```python
+from easy_sandbox import Sandbox
+
+sandbox = Sandbox.create(
+    template="qwen-code",
+    env={"DASHSCOPE_API_KEY": "sk-xxx"}
+)
+
+result = sandbox.commands.run("python3 --version && node --version")
+print(result.stdout)
+```
+
+### Configuration
+
+#### Environment Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `DASHSCOPE_API_KEY` | Alibaba Cloud DashScope API key | Yes |
+| `WORKSPACE` | Working directory path, defaults to `/workspace` | No |
+
+#### Manual AI Coding Tool Installation
+
+This template already ships with the qwen-code CLI, ready to use:
+
+```bash
+# Use qwen-code for NL-based deployment
+ebx deploy ./my-project "Deploy this FastAPI project"
+
+# Or use the qwen command directly inside the sandbox
+ebx exec <sandbox-id> -- qwen -p "Analyze the project and deploy it" --yolo
+```
+
+To install additional tools:
+
+```bash
+# Install extra Python packages
+ebx exec <sandbox-id> -- pip install <agent-package>
+
+# Install extra Node.js tools
+ebx exec <sandbox-id> -- npm install -g <agent-tool>
+```
+
+### Notes
+
+- **API key security**: Never hardcode `DASHSCOPE_API_KEY` into the template; always inject it via the `--env` option or environment variables.
+- **Network access**: The DashScope API (`dashscope.aliyuncs.com`) must be reachable — make sure the sandbox has outbound internet connectivity.
+- **Compatible interface**: DashScope offers an OpenAI-compatible mode, so Qwen models can be called directly through the `openai` library.
+- **Virtual environment**: Python packages are installed in `/opt/venv`; no manual activation is needed since `PATH` is preconfigured.
+
+---
+
+## 中文
 
 通义千问（Qwen）编码 Agent 的沙箱运行环境，支持 qwen-code 驱动的 AI 自主部署，提供 Python 3.11 + Node.js 22 的 AI 编程基础环境。
 
-## 环境说明
+### 环境说明
 
 本模板预装以下工具和依赖：
 
@@ -16,7 +144,7 @@
 | **系统工具** | git、curl、wget、ripgrep、jq、build-essential |
 | **资源配置** | 2 CPU / 4096 MB 内存 |
 
-## 安装方式
+### 安装方式
 
 **从本地安装：**
 
@@ -30,7 +158,7 @@ ebx install ./examples/templates/qwen-code --registry-type local
 ebx install Easy-Sandbox/awesome-templates//qwen-code
 ```
 
-## 使用示例
+### 使用示例
 
 创建沙箱实例并传入 API Key：
 
@@ -80,16 +208,16 @@ result = sandbox.commands.run("python3 --version && node --version")
 print(result.stdout)
 ```
 
-## 配置说明
+### 配置说明
 
-### 环境变量
+#### 环境变量
 
 | 变量名 | 说明 | 必填 |
 |--------|------|------|
 | `DASHSCOPE_API_KEY` | 阿里云 DashScope API 密钥 | 是 |
 | `WORKSPACE` | 工作目录路径，默认 `/workspace` | 否 |
 
-### 手动安装 AI 编码工具
+#### 手动安装 AI 编码工具
 
 本模板已预装 qwen-code CLI 工具，可直接使用：
 
@@ -111,7 +239,7 @@ ebx exec <sandbox-id> -- pip install <agent-package>
 ebx exec <sandbox-id> -- npm install -g <agent-tool>
 ```
 
-## 注意事项
+### 注意事项
 
 - **API Key 安全**：请勿将 `DASHSCOPE_API_KEY` 硬编码到模板中，始终通过 `--env` 参数或环境变量注入。
 - **网络访问**：需要访问 DashScope API（`dashscope.aliyuncs.com`），确保沙箱具备外网连接能力。

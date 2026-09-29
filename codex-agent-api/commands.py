@@ -21,6 +21,15 @@ Architecture::
     |   POST   /v1/agents/sessions/{id}/events|
     |   GET    /v1/agents/sessions/{id}/events|
     |   GET    /v1/agents/sessions/{id}/items |
+    |   GET    /v1/agents/sessions/{id}/       |
+    |          artifacts/{artifact_id}        |
+    |   DELETE /v1/agents/sessions/{id}/       |
+    |          artifacts/{artifact_id}        |
+    |   POST   /v1/agents                     |
+    |   GET    /v1/agents                     |
+    |   GET    /v1/agents/{agent_id}          |
+    |   POST   /v1/agents/{agent_id}          |
+    |   DELETE /v1/agents/{agent_id}          |
     +---------------------+-------------------+
                           |
                           v
@@ -41,8 +50,10 @@ Usage with OpenAI Python SDK::
 from __future__ import annotations
 
 import atexit
+import base64
 import json
 import os
+import re
 import subprocess
 import threading
 import time
@@ -66,6 +77,7 @@ DEFAULT_MODEL = os.environ.get("CODEX_MODEL", "codex-mini")
 MAX_SESSIONS = int(os.environ.get("AGENT_MAX_SESSIONS", "20"))
 SESSION_TTL = int(os.environ.get("AGENT_SESSION_TTL", "1800"))  # seconds
 TURN_TIMEOUT = 300  # seconds per turn
+WORKSPACE = os.environ.get("WORKSPACE", "/workspace")
 
 # ── Route table & capability groups ────────────────────────────────────
 
@@ -122,6 +134,12 @@ class Session:
     last_active: int = field(default_factory=lambda: int(time.time()))
     turns: list[Turn] = field(default_factory=list)
     items: list[dict[str, Any]] = field(default_factory=list)
+    # Token usage accumulated from Codex ``turn.completed`` events.
+    usage: dict[str, int] = field(
+        default_factory=lambda: {"input_tokens": 0, "output_tokens": 0}
+    )
+    # Codex thread id recorded from the first turn (used for resume).
+    thread_id: str = ""
     _process: subprocess.Popen[bytes] | None = field(default=None, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
@@ -142,7 +160,7 @@ class Session:
         """Serialize with output items (for completed sessions)."""
         d = self.to_dict()
         d["output"] = self.items[-5:] if self.items else []  # last 5 items
-        d["usage"] = {"input_tokens": 0, "output_tokens": 0}  # placeholder
+        d["usage"] = dict(self.usage)  # real usage accumulated from turn.completed
         return d
 
 
@@ -240,31 +258,252 @@ def _cleanup() -> None:
 atexit.register(_cleanup)
 
 
+# ── Agent configuration store (thread-safe) ─────────────────────
+
+
+@dataclass
+class AgentConfig:
+    """A saved, reusable Agent configuration."""
+
+    id: str = field(default_factory=lambda: f"agent_{uuid.uuid4().hex[:24]}")
+    object: str = "agent"
+    model: str = ""
+    instructions: str = ""
+    tools: list[dict[str, Any]] = field(default_factory=list)
+    name: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+    created_at: int = field(default_factory=lambda: int(time.time()))
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to OpenAI-compatible JSON."""
+        return {
+            "id": self.id,
+            "object": self.object,
+            "model": self.model,
+            "instructions": self.instructions,
+            "tools": self.tools,
+            "name": self.name,
+            "metadata": self.metadata,
+            "created_at": self.created_at,
+        }
+
+
+class AgentStore:
+    """Thread-safe in-memory agent configuration store."""
+
+    def __init__(self) -> None:
+        self._agents: dict[str, AgentConfig] = {}
+        self._lock = threading.Lock()
+
+    def create(
+        self,
+        model: str,
+        instructions: str = "",
+        tools: list[dict[str, Any]] | None = None,
+        name: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> AgentConfig:
+        """Create and store a new agent configuration."""
+        with self._lock:
+            agent = AgentConfig(
+                model=model,
+                instructions=instructions,
+                tools=tools or [],
+                name=name,
+                metadata=metadata or {},
+            )
+            self._agents[agent.id] = agent
+            return agent
+
+    def get(self, agent_id: str) -> AgentConfig | None:
+        """Return the agent with *agent_id*, or ``None``."""
+        with self._lock:
+            return self._agents.get(agent_id)
+
+    def list_all(self) -> list[AgentConfig]:
+        """Return a snapshot of all saved agents."""
+        with self._lock:
+            return list(self._agents.values())
+
+    def update(self, agent_id: str, **kwargs: Any) -> AgentConfig | None:
+        """Update mutable fields of an agent.
+
+        The ``id``, ``object`` and ``created_at`` fields are immutable.
+        """
+        with self._lock:
+            agent = self._agents.get(agent_id)
+            if not agent:
+                return None
+            for key, value in kwargs.items():
+                if hasattr(agent, key) and key not in ("id", "object", "created_at"):
+                    setattr(agent, key, value)
+            return agent
+
+    def delete(self, agent_id: str) -> bool:
+        """Delete an agent, returning whether it existed."""
+        with self._lock:
+            return self._agents.pop(agent_id, None) is not None
+
+
+# Global agent store
+agent_store = AgentStore()
+
+
 # ── Codex CLI adapter ──────────────────────────────────────────────────
 
 
+def _unique_mcp_label(raw_label: Any, index: int, used: set[str]) -> str:
+    """Return a config-safe, unique label for an MCP server.
+
+    Codex config keys are dotted paths and quoted path segments are rejected
+    (verified against Codex CLI 0.158.0: ``mcp_servers."a.b"`` fails to parse),
+    so labels are restricted to ``[A-Za-z0-9_-]`` and de-duplicated.
+    """
+    base = re.sub(r"[^A-Za-z0-9_-]", "_", str(raw_label or "")).strip("_") or f"mcp_{index}"
+    label = base
+    suffix = 2
+    while label in used:
+        label = f"{base}_{suffix}"
+        suffix += 1
+    used.add(label)
+    return label
+
+
+def _mcp_server_overrides(tools: list[dict[str, Any]]) -> list[str]:
+    """Translate Agents API MCP tool definitions into ``-c`` config overrides.
+
+    Codex CLI 0.158.0 has no ``--mcp-config`` flag; remote MCP servers are
+    configured through ``mcp_servers.<label>.url`` / ``.http_headers`` keys
+    passed as ``-c key=value`` overrides (the value portion is parsed as TOML
+    by Codex — verified with ``--strict-config``). Only URL-based servers can
+    be proxied: hosted ``connector_id`` tools are host-side and are skipped.
+    """
+    overrides: list[str] = []
+    used_labels: set[str] = set()
+    for tool in tools:
+        if not isinstance(tool, dict) or tool.get("type") != "mcp":
+            continue
+        # Accept both the flat Responses-API shape and a nested ``transport``.
+        transport = tool.get("transport")
+        transport = transport if isinstance(transport, dict) else {}
+        url = (
+            transport.get("server_url")
+            or transport.get("url")
+            or tool.get("server_url")
+            or tool.get("url")
+        )
+        if not isinstance(url, str) or not url:
+            continue
+        label = _unique_mcp_label(
+            tool.get("server_label") or tool.get("name"), len(used_labels), used_labels
+        )
+        overrides += ["-c", f"mcp_servers.{label}.url={json.dumps(url)}"]
+        headers = tool.get("headers") or transport.get("headers")
+        if isinstance(headers, dict) and headers:
+            entries = ", ".join(
+                f"{json.dumps(str(key))} = {json.dumps(str(value))}"
+                for key, value in headers.items()
+            )
+            overrides += ["-c", f"mcp_servers.{label}.http_headers={{{entries}}}"]
+    return overrides
+
+
+def _provider_overrides() -> list[str]:
+    """Translate a custom ``OPENAI_BASE_URL`` into Codex provider overrides.
+
+    Codex CLI 0.158.0 does *not* re-route its built-in ``openai`` provider
+    from the ``OPENAI_BASE_URL`` environment variable alone (verified against
+    the real binary: requests still hit ``api.openai.com`` and fail with
+    ``401 Missing bearer``).  When this adapter is pointed at an
+    OpenAI-compatible gateway (e.g. Alibaba Cloud MaaS / Bailian), declare a
+    custom provider through ``-c`` config overrides so every turn talks to
+    that endpoint using the ``OPENAI_API_KEY`` from the environment.  When
+    ``OPENAI_BASE_URL`` is unset the default OpenAI provider is kept.
+    """
+    base_url = os.environ.get("OPENAI_BASE_URL", "").strip()
+    if not base_url:
+        return []
+    prefix = "model_providers.openai_compatible"
+    return [
+        "-c", f"model_provider={json.dumps('openai_compatible')}",
+        "-c", f"{prefix}.name={json.dumps('OpenAI-compatible endpoint')}",
+        "-c", f"{prefix}.base_url={json.dumps(base_url)}",
+        "-c", f"{prefix}.env_key={json.dumps('OPENAI_API_KEY')}",
+        "-c", f"{prefix}.wire_api={json.dumps('responses')}",
+        # Custom gateways serve the Responses HTTP API only; skip websockets.
+        "-c", f"{prefix}.supports_websockets=false",
+    ]
+
+
+def _track_codex_event(session: Session, event: dict[str, Any], turn: Turn | None = None) -> None:
+    """Fold a Codex JSONL event into session state.
+
+    - ``item.started`` / ``item.completed`` events are accumulated as items.
+    - ``thread.started`` records the Codex thread id so later turns can resume
+      the exact thread instead of relying on ``resume --last`` (which picks the
+      most recent thread in the workspace and can collide when several Agent
+      API sessions share one sandbox).
+    - ``turn.completed`` accumulates the token usage reported by Codex.
+    """
+    event_type = event.get("type")
+    if event_type in ("item.started", "item.completed"):
+        session.items.append(event)
+        if turn is not None:
+            turn.items.append(event)
+    elif event_type == "thread.started":
+        thread_id = event.get("thread_id")
+        if isinstance(thread_id, str) and thread_id:
+            session.thread_id = thread_id
+    elif event_type == "turn.completed":
+        event_usage = event.get("usage")
+        if isinstance(event_usage, dict):
+            for key in ("input_tokens", "output_tokens"):
+                value = event_usage.get(key, 0)
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    session.usage[key] += int(value)
+
+
 def spawn_codex_turn(session: Session, input_text: str) -> subprocess.Popen[bytes]:
-    """Spawn a ``codex exec`` process for a new turn."""
+    """Spawn a ``codex exec`` process for a new turn.
+
+    The argv shape is locked against Codex CLI 0.158.0 (verified against the
+    real binary):
+
+    * first turn — ``codex exec --json ... -- <prompt>``
+    * later turns — ``codex exec --json ... resume <thread_id|--last> -- <prompt>``
+
+    ``resume`` does not accept ``--sandbox``, so every option is passed at the
+    ``exec`` level before the subcommand (verified: they apply to the resumed
+    turn). ``--`` terminates option parsing so prompts beginning with ``-``
+    are not mistaken for flags.
+
+    When ``OPENAI_BASE_URL`` points at an OpenAI-compatible gateway, a custom
+    Codex provider is injected via :func:`_provider_overrides` so the turn
+    does not silently fall back to ``api.openai.com``.
+    """
     cmd = [
         "codex",
         "exec",
         "--json",
-        "--sandbox",
-        "danger-full-access",
+        "--dangerously-bypass-approvals-and-sandbox",
         "--skip-git-repo-check",
         "--model",
         session.model,
     ]
-    # For subsequent turns, try resume
+    cmd.extend(_provider_overrides())
+    cmd.extend(_mcp_server_overrides(session.tools))
     if session.turns:
-        cmd.extend(["resume", "--last"])
-    cmd.append(input_text)
+        # Prefer the exact thread recorded from the first turn; fall back to
+        # the most recent thread in the workspace only when no id was captured.
+        cmd.extend(["resume", session.thread_id or "--last"])
+    cmd.extend(["--", input_text])
 
     proc = subprocess.Popen(  # noqa: S603
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        cwd="/workspace",
+        stdin=subprocess.DEVNULL,
+        cwd=WORKSPACE,
     )
     return proc
 
@@ -288,7 +527,21 @@ def iter_codex_events(
             yield json.loads(line)
         except json.JSONDecodeError:
             continue
-    proc.wait()
+    returncode = proc.wait()
+    if returncode:
+        # ``resume`` of an unknown thread id (or another early failure) can
+        # exit non-zero without emitting a JSONL error event — surface the
+        # stderr tail so the turn is not silently marked as completed.
+        detail = ""
+        if proc.stderr is not None:
+            try:
+                detail = proc.stderr.read().decode("utf-8", errors="replace").strip()
+            except Exception:  # noqa: BLE001
+                detail = ""
+        message = f"codex exec exited with code {returncode}"
+        if detail:
+            message = f"{message}: {detail[-2000:]}"
+        yield {"type": "error", "error": {"message": message}}
 
 
 # Codex event type -> OpenAI Agents API event type
@@ -403,6 +656,14 @@ def create_session(request: ServerRequest) -> SSEResponse | ServerResponse:
     """Create a session and optionally run a first turn."""
     body = request.body or {}
     agent_config = body.get("agent", {})
+    if isinstance(agent_config, str):
+        # `agent` may reference a saved agent by ID instead of an inline dict.
+        saved_agent = agent_store.get(agent_config)
+        if not saved_agent:
+            return ServerResponse.error(404, f"Agent {agent_config} not found", "NotFoundError")
+        agent_config = saved_agent.to_dict()
+    if not isinstance(agent_config, dict):
+        agent_config = {}
     model = agent_config.get("model", DEFAULT_MODEL)
     instructions = agent_config.get("instructions", "")
     tools = agent_config.get("tools", [])
@@ -445,10 +706,7 @@ def create_session(request: ServerRequest) -> SSEResponse | ServerResponse:
             failed = False
             try:
                 for codex_event in iter_codex_events(proc):
-                    # Accumulate items
-                    if codex_event.get("type") in ("item.completed", "item.started"):
-                        session.items.append(codex_event)
-                        turn.items.append(codex_event)
+                    _track_codex_event(session, codex_event, turn)
 
                     if codex_event.get("type") == "error":
                         failed = True
@@ -485,9 +743,7 @@ def create_session(request: ServerRequest) -> SSEResponse | ServerResponse:
     # Synchronous: collect all events and return completed session
     failed = False
     for codex_event in iter_codex_events(proc):
-        if codex_event.get("type") in ("item.completed", "item.started"):
-            session.items.append(codex_event)
-            turn.items.append(codex_event)
+        _track_codex_event(session, codex_event, turn)
         if codex_event.get("type") == "error":
             failed = True
 
@@ -606,9 +862,7 @@ def send_event(request: ServerRequest) -> SSEResponse | ServerResponse:
             failed = False
             try:
                 for codex_event in iter_codex_events(proc):
-                    if codex_event.get("type") in ("item.completed", "item.started"):
-                        session.items.append(codex_event)
-                        turn.items.append(codex_event)
+                    _track_codex_event(session, codex_event, turn)
 
                     if codex_event.get("type") == "error":
                         failed = True
@@ -645,9 +899,7 @@ def send_event(request: ServerRequest) -> SSEResponse | ServerResponse:
     # Synchronous mode
     failed = False
     for codex_event in iter_codex_events(proc):
-        if codex_event.get("type") in ("item.completed", "item.started"):
-            session.items.append(codex_event)
-            turn.items.append(codex_event)
+        _track_codex_event(session, codex_event, turn)
         if codex_event.get("type") == "error":
             failed = True
 
@@ -687,10 +939,7 @@ def subscribe_events(request: ServerRequest) -> SSEResponse | ServerResponse:
         failed = False
         try:
             for codex_event in iter_codex_events(proc):
-                if codex_event.get("type") in ("item.completed", "item.started"):
-                    session.items.append(codex_event)
-                    if current_turn:
-                        current_turn.items.append(codex_event)
+                _track_codex_event(session, codex_event, current_turn)
 
                 if codex_event.get("type") == "error":
                     failed = True
@@ -736,7 +985,174 @@ def list_items(request: ServerRequest) -> ServerResponse:
     )
 
 
-# ── Serve ──────────────────────────────────────────────────────────────
+# ── Artifacts helpers ──────────────────────────────────────────
+
+
+def _decode_artifact_path(artifact_id: str) -> str:
+    """Decode an artifact ID into a workspace-relative file path.
+
+    Artifact IDs are URL-safe base64-encoded paths (e.g. ``cmVwb3J0Lm1k``
+    for ``report.md``).  Values that fail to decode are used as-is so
+    plain relative paths also work.
+    """
+    padded = artifact_id + "=" * (-len(artifact_id) % 4)
+    try:
+        return base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+    except Exception:  # noqa: BLE001
+        return artifact_id
+
+
+def _resolve_artifact_path(file_path: str) -> str | None:
+    """Resolve *file_path* against the workspace root, safely.
+
+    Returns the normalised absolute path, or ``None`` when the path escapes
+    the workspace (e.g. ``../../etc/passwd`` or an absolute foreign path).
+    """
+    root = os.path.normpath(WORKSPACE)
+    full_path = os.path.normpath(os.path.join(root, file_path))
+    if full_path == root or full_path.startswith(root + os.sep):
+        return full_path
+    return None
+
+
+# GET /v1/agents/sessions/{session_id}/artifacts/{artifact_id} — Get artifact
+@table.route(
+    "GET",
+    "/v1/agents/sessions/{session_id}/artifacts/{artifact_id}",
+    group=CapabilityGroup.COMMANDS,
+)
+def get_artifact(request: ServerRequest) -> ServerResponse:
+    """Download a workspace file artifact produced during a session."""
+    session_id = request.path_params.get("session_id", "")
+    artifact_id = request.path_params.get("artifact_id", "")
+
+    session = store.get(session_id)
+    if not session:
+        return ServerResponse.error(404, f"Session {session_id} not found", "NotFoundError")
+
+    file_path = _decode_artifact_path(artifact_id)
+    full_path = _resolve_artifact_path(file_path)
+    if full_path is None:
+        return ServerResponse.error(403, "Access denied: path outside workspace", "ForbiddenError")
+
+    if not os.path.isfile(full_path):
+        return ServerResponse.error(404, f"Artifact not found: {file_path}", "NotFoundError")
+
+    try:
+        with open(full_path, encoding="utf-8", errors="replace") as f:
+            content = f.read()
+        return ServerResponse.ok(
+            {
+                "id": artifact_id,
+                "object": "artifact",
+                "session_id": session_id,
+                "file_path": file_path,
+                "content": content,
+                "size": os.path.getsize(full_path),
+            }
+        )
+    except Exception as exc:  # noqa: BLE001
+        return ServerResponse.error(500, str(exc), "ReadError")
+
+
+# DELETE /v1/agents/sessions/{session_id}/artifacts/{artifact_id} — Delete artifact
+@table.route(
+    "DELETE",
+    "/v1/agents/sessions/{session_id}/artifacts/{artifact_id}",
+    group=CapabilityGroup.COMMANDS,
+)
+def delete_artifact(request: ServerRequest) -> ServerResponse:
+    """Delete a workspace file artifact."""
+    session_id = request.path_params.get("session_id", "")
+    artifact_id = request.path_params.get("artifact_id", "")
+
+    session = store.get(session_id)
+    if not session:
+        return ServerResponse.error(404, f"Session {session_id} not found", "NotFoundError")
+
+    file_path = _decode_artifact_path(artifact_id)
+    full_path = _resolve_artifact_path(file_path)
+    if full_path is None:
+        return ServerResponse.error(403, "Access denied: path outside workspace", "ForbiddenError")
+
+    if not os.path.isfile(full_path):
+        return ServerResponse.error(404, f"Artifact not found: {file_path}", "NotFoundError")
+
+    try:
+        os.remove(full_path)
+        return ServerResponse.ok({"id": artifact_id, "object": "artifact", "deleted": True})
+    except Exception as exc:  # noqa: BLE001
+        return ServerResponse.error(500, str(exc), "DeleteError")
+
+
+# ── Saved agents CRUD routes ─────────────────────────────────────
+#
+# NOTE: these generic ``/v1/agents/{agent_id}`` routes are deliberately
+# registered AFTER the session routes above — RouteTable matches in
+# registration order (linear scan), so the literal ``/v1/agents/sessions``
+# paths win over the ``{agent_id}`` placeholder.
+
+
+# POST /v1/agents — Create agent
+@table.route("POST", "/v1/agents", group=CapabilityGroup.COMMANDS)
+def create_agent(request: ServerRequest) -> ServerResponse:
+    """Create a reusable agent configuration."""
+    body = request.body or {}
+    agent = agent_store.create(
+        model=body.get("model", DEFAULT_MODEL),
+        instructions=body.get("instructions", ""),
+        tools=body.get("tools", []),
+        name=body.get("name", ""),
+        metadata=body.get("metadata", {}),
+    )
+    return ServerResponse.ok(agent.to_dict())
+
+
+# GET /v1/agents — List agents
+@table.route("GET", "/v1/agents", group=CapabilityGroup.COMMANDS)
+def list_agents(request: ServerRequest) -> ServerResponse:
+    """List all saved agents."""
+    agents = agent_store.list_all()
+    return ServerResponse.ok({"object": "list", "data": [a.to_dict() for a in agents]})
+
+
+# GET /v1/agents/{agent_id} — Get agent
+@table.route("GET", "/v1/agents/{agent_id}", group=CapabilityGroup.COMMANDS)
+def get_agent(request: ServerRequest) -> ServerResponse:
+    """Retrieve a saved agent by ID."""
+    agent_id = request.path_params.get("agent_id", "")
+    agent = agent_store.get(agent_id)
+    if not agent:
+        return ServerResponse.error(404, f"Agent {agent_id} not found", "NotFoundError")
+    return ServerResponse.ok(agent.to_dict())
+
+
+# POST /v1/agents/{agent_id} — Update agent
+@table.route("POST", "/v1/agents/{agent_id}", group=CapabilityGroup.COMMANDS)
+def update_agent(request: ServerRequest) -> ServerResponse:
+    """Update a saved agent's model / instructions / tools / name / metadata."""
+    agent_id = request.path_params.get("agent_id", "")
+    body = request.body or {}
+    updates = {
+        k: v for k, v in body.items() if k in ("model", "instructions", "tools", "name", "metadata")
+    }
+    agent = agent_store.update(agent_id, **updates)
+    if not agent:
+        return ServerResponse.error(404, f"Agent {agent_id} not found", "NotFoundError")
+    return ServerResponse.ok(agent.to_dict())
+
+
+# DELETE /v1/agents/{agent_id} — Delete agent
+@table.route("DELETE", "/v1/agents/{agent_id}", group=CapabilityGroup.COMMANDS)
+def delete_agent(request: ServerRequest) -> ServerResponse:
+    """Delete a saved agent."""
+    agent_id = request.path_params.get("agent_id", "")
+    if agent_store.delete(agent_id):
+        return ServerResponse.ok({"id": agent_id, "object": "agent", "deleted": True})
+    return ServerResponse.error(404, f"Agent {agent_id} not found", "NotFoundError")
+
+
+# ── Serve ──────────────────────────────────────────────────────────
 
 registry.freeze()
 server = SandboxServer(registry=registry)

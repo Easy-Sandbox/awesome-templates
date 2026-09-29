@@ -1,8 +1,141 @@
-# Node.js Web 服务模板
+# node-web
+
+> [中文版](#中文) | [English](#english)
+
+---
+
+## English
+
+Node.js 20 web service sandbox environment, suited for rapid development and deployment with Express, Fastify, Koa, and similar frameworks.
+
+### Environment
+
+| Category | Details |
+|----------|---------|
+| **Base image** | node:20-slim |
+| **Node.js** | Node.js 20.x + npm |
+| **Global tools** | yarn, nodemon, pm2 |
+| **System tools** | curl, wget, git, jq |
+| **Resources** | 1 CPU / 2048 MB memory |
+| **Exposed port** | 3000 |
+
+### Installation
+
+**Install from a local path:**
+
+```bash
+ebx install ./examples/templates/node-web --registry-type local
+```
+
+**Install from GitHub:**
+
+```bash
+ebx install Easy-Sandbox/awesome-templates//node-web
+```
+
+### Usage
+
+Create a sandbox instance:
+
+```bash
+ebx create --template node-web
+```
+
+Initialize an Express project inside the sandbox and start it:
+
+```bash
+ebx exec <sandbox-id> -- bash -c "
+cd /workspace && \
+npm init -y && \
+npm install express && \
+cat > index.js << 'EOF'
+const express = require('express');
+const app = express();
+const port = process.env.PORT || 3000;
+
+app.get('/', (req, res) => {
+  res.json({ message: 'Hello from Easy Sandbox!' });
+});
+
+app.listen(port, () => {
+  console.log('Server running on port ' + port);
+});
+EOF
+node index.js
+"
+```
+
+Using the Python SDK:
+
+```python
+from easy_sandbox import Sandbox
+
+sandbox = Sandbox.create(template="node-web")
+
+# Write the server code
+sandbox.files.write("/workspace/index.js", """
+const http = require('http');
+const server = http.createServer((req, res) => {
+    res.writeHead(200, {'Content-Type': 'application/json'});
+    res.end(JSON.stringify({status: 'ok'}));
+});
+server.listen(3000);
+""")
+
+# Start the service
+sandbox.commands.run("node /workspace/index.js &")
+
+# Test access
+result = sandbox.commands.run("curl -s http://localhost:3000")
+print(result.stdout)
+```
+
+### Configuration
+
+#### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `NODE_ENV` | Node.js runtime environment | `production` |
+| `PORT` | Web service listen port | `3000` |
+
+#### Managing Processes with pm2
+
+pm2 is preinstalled and available for process management:
+
+```bash
+# Start the service
+pm2 start index.js --name my-app
+
+# Check status
+pm2 status
+
+# View logs
+pm2 logs my-app
+```
+
+#### Development Mode with nodemon
+
+During development, use nodemon for hot reload:
+
+```bash
+NODE_ENV=development nodemon index.js
+```
+
+### Notes
+
+- **Port mapping**: Port 3000 is exposed by default; to use other ports, specify them via configuration when creating the sandbox.
+- **Production environment**: `NODE_ENV` defaults to `production`; during development, set it to `development` for detailed error messages.
+- **Package managers**: Both npm and yarn are installed — choose based on project needs.
+- **Process management**: In production, using pm2 to manage Node.js processes is recommended for stable service operation.
+
+---
+
+## 中文
 
 Node.js 20 Web 服务沙箱环境，适用于 Express、Fastify、Koa 等框架的快速开发与部署。
 
-## 环境说明
+### 环境说明
 
 | 类别 | 内容 |
 |------|------|
@@ -13,7 +146,7 @@ Node.js 20 Web 服务沙箱环境，适用于 Express、Fastify、Koa 等框架�
 | **资源配置** | 1 CPU / 2048 MB 内存 |
 | **暴露端口** | 3000 |
 
-## 安装方式
+### 安装方式
 
 **从本地安装：**
 
@@ -27,7 +160,7 @@ ebx install ./examples/templates/node-web --registry-type local
 ebx install Easy-Sandbox/awesome-templates//node-web
 ```
 
-## 使用示例
+### 使用示例
 
 创建沙箱实例：
 
@@ -84,16 +217,16 @@ result = sandbox.commands.run("curl -s http://localhost:3000")
 print(result.stdout)
 ```
 
-## 配置说明
+### 配置说明
 
-### 环境变量
+#### 环境变量
 
 | 变量名 | 说明 | 默认值 |
 |--------|------|--------|
 | `NODE_ENV` | Node.js 运行环境 | `production` |
 | `PORT` | Web 服务监听端口 | `3000` |
 
-### 使用 pm2 管理进程
+#### 使用 pm2 管理进程
 
 pm2 已预装，可用于进程管理：
 
@@ -108,7 +241,7 @@ pm2 status
 pm2 logs my-app
 ```
 
-### 使用 nodemon 开发模式
+#### 使用 nodemon 开发模式
 
 开发阶段可使用 nodemon 实现热重载：
 
@@ -116,7 +249,7 @@ pm2 logs my-app
 NODE_ENV=development nodemon index.js
 ```
 
-## 注意事项
+### 注意事项
 
 - **端口映射**：默认暴露 3000 端口，如需其他端口，请在创建沙箱时通过配置指定。
 - **生产环境**：`NODE_ENV` 默认为 `production`，开发时可设为 `development` 以获取详细错误信息。

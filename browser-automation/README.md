@@ -1,10 +1,176 @@
-# 浏览器自动化模板
+# browser-automation
+
+> [中文版](#中文) | [English](#english)
+
+---
+
+## English
+
+Sandbox environment with Playwright + Chromium preinstalled, suited for web scraping, UI automation testing, and browser interaction tasks.
+
+This template enables the built-in **BROWSER** capability group, exposing 8 low-level browser endpoints while also registering 3 high-level business commands for AI agents.
+
+### Environment
+
+| Category | Details |
+|----------|---------|
+| **Base image** | mcr.microsoft.com/playwright/python:v1.40.0-jammy |
+| **Browser** | Chromium (managed by Playwright) |
+| **Python packages** | `playwright`, `beautifulsoup4`, `lxml`, `httpx`, `Pillow` |
+| **System tools** | curl, wget, xvfb, jq |
+| **Resources** | 2 CPU / 4096 MB memory |
+| **Enabled capability groups** | `BROWSER`, `FILE_OPS`, `PROCESS` |
+
+### Installation
+
+**Install from a local path:**
+
+```bash
+ebx install ./examples/templates/browser-automation --registry-type local
+```
+
+**Install from GitHub:**
+
+```bash
+ebx install Easy-Sandbox/awesome-templates//browser-automation
+```
+
+### High-Level Business Commands
+
+The template registers the following high-level commands for AI agent workflows:
+
+#### `browse(url, action="screenshot")`
+
+Smart browsing — navigates to a URL and performs different operations based on `action`.
+
+| action | Behavior |
+|--------|----------|
+| `screenshot` | Take a full-page screenshot and return the saved path |
+| `extract` | Retrieve the visible text content of the page |
+| `links` | Extract all hyperlinks on the page (href + text) |
+| `full` | Screenshot + title + first 500 characters of text summary |
+
+#### `scrape(url, selector)`
+
+Extract element text content by CSS selector. Returns an array of the matched elements' texts.
+
+#### `fill_form(url, fields_json)`
+
+Auto form filling — navigates to a URL and fills each form field as described by the JSON.
+
+`fields_json` format:
+
+```json
+[
+  {"selector": "#email", "value": "test@example.com"},
+  {"selector": "#password", "value": "123456"}
+]
+```
+
+### Built-in BROWSER Endpoints
+
+After enabling `CapabilityGroup.BROWSER`, the following low-level HTTP endpoints are directly callable:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/browser/navigate` | Navigate to the specified URL |
+| POST | `/browser/screenshot` | Capture a page screenshot (returns base64) |
+| GET  | `/browser/content` | Get page HTML or plain text |
+| POST | `/browser/click` | Click the specified element |
+| POST | `/browser/type` | Type text into the specified element |
+| POST | `/browser/evaluate` | Execute JavaScript in the page |
+| POST | `/browser/pdf` | Generate a PDF of the page (returns base64) |
+| GET  | `/browser/console` | Get the collected console logs |
+
+### Usage
+
+Create a sandbox instance:
+
+```bash
+ebx create --template browser-automation
+```
+
+Take a screenshot with a high-level command:
+
+```bash
+ebx exec <sandbox-id> browse --url https://example.com --action screenshot
+```
+
+Extract text with a high-level command:
+
+```bash
+ebx exec <sandbox-id> browse --url https://example.com --action extract
+```
+
+Scrape a specific element with a high-level command:
+
+```bash
+ebx exec <sandbox-id> scrape --url https://example.com --selector "h1"
+```
+
+Using the Python SDK:
+
+```python
+from easy_sandbox import Sandbox
+
+sandbox = Sandbox.create(template="browser-automation")
+
+# Take a webpage screenshot (invokes a custom command, returns CommandResult)
+result = sandbox.custom("browse", url="https://example.com", action="screenshot")
+print(result.value)  # {"action": "screenshot", "url": "...", "path": "/workspace/screenshot_xxx.png"}
+
+# Extract page text
+result = sandbox.custom("browse", url="https://example.com", action="extract")
+print(result.value["text"])
+
+# Scrape by selector
+result = sandbox.custom("scrape", url="https://example.com", selector="h1")
+print(result.value["texts"])
+
+# Auto form filling
+import json
+fields = [
+    {"selector": "#email", "value": "test@example.com"},
+    {"selector": "#password", "value": "secret"},
+]
+result = sandbox.custom("fill_form", url="https://example.com/login", fields_json=json.dumps(fields))
+print(result.value)
+```
+
+### Configuration
+
+#### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `DISPLAY` | X virtual framebuffer display number | `:99` |
+| `PLAYWRIGHT_BROWSERS_PATH` | Browser installation path | `/ms-playwright` |
+
+#### Headless vs. Headed Mode
+
+Runs in headless mode by default (no GUI needed). For headed mode, start Xvfb first:
+
+```bash
+Xvfb :99 -screen 0 1920x1080x24 &
+```
+
+### Notes
+
+- **Persistent browser instance**: The template uses a module-level Playwright singleton, created on first call and reused by subsequent commands — far more performant than creating and destroying one each time.
+- **Memory usage**: Browsers consume considerable memory at runtime; keeping at least 4096 MB is recommended.
+- **Chromium only**: To keep the image small, only Chromium is installed by default. For Firefox or WebKit, run `python3 -m playwright install firefox` inside the sandbox.
+- **Network access**: Web scraping tasks require outbound internet access; make sure the sandbox network policy allows outbound connections.
+- **Screenshots and files**: Generated screenshots and files are saved under `/workspace` and can be downloaded via the file API.
+
+---
+
+## 中文
 
 预装 Playwright + Chromium 的沙箱环境，适用于网页抓取、UI 自动化测试和浏览器交互任务。
 
 本模板启用了 **BROWSER** 内置能力组，提供 8 个低层浏览器端点，同时注册了 3 个面向 AI Agent 的高层业务命令。
 
-## 环境说明
+### 环境说明
 
 | 类别 | 内容 |
 |------|------|
@@ -15,7 +181,7 @@
 | **资源配置** | 2 CPU / 4096 MB 内存 |
 | **启用能力组** | `BROWSER`、`FILE_OPS`、`PROCESS` |
 
-## 安装方式
+### 安装方式
 
 **从本地安装：**
 
@@ -29,11 +195,11 @@ ebx install ./examples/templates/browser-automation --registry-type local
 ebx install Easy-Sandbox/awesome-templates//browser-automation
 ```
 
-## 高层业务命令
+### 高层业务命令
 
 模板注册了以下面向 AI Agent 工作流的高层命令：
 
-### `browse(url, action="screenshot")`
+#### `browse(url, action="screenshot")`
 
 智能浏览 — 导航到 URL 并根据 action 执行不同操作。
 
@@ -44,11 +210,11 @@ ebx install Easy-Sandbox/awesome-templates//browser-automation
 | `links` | 提取页面中所有超链接（href + text） |
 | `full` | 截图 + 标题 + 前 500 字文本摘要 |
 
-### `scrape(url, selector)`
+#### `scrape(url, selector)`
 
 按 CSS 选择器提取元素文本内容。返回匹配元素的文本数组。
 
-### `fill_form(url, fields_json)`
+#### `fill_form(url, fields_json)`
 
 自动填表 — 导航到 URL，按 JSON 描述逐个填写表单字段。
 
@@ -61,7 +227,7 @@ ebx install Easy-Sandbox/awesome-templates//browser-automation
 ]
 ```
 
-## 内置 BROWSER 端点
+### 内置 BROWSER 端点
 
 启用 `CapabilityGroup.BROWSER` 后，以下低层 HTTP 端点可直接调用：
 
@@ -76,7 +242,7 @@ ebx install Easy-Sandbox/awesome-templates//browser-automation
 | POST | `/browser/pdf` | 生成页面 PDF（返回 base64） |
 | GET  | `/browser/console` | 获取收集的控制台日志 |
 
-## 使用示例
+### 使用示例
 
 创建沙箱实例：
 
@@ -131,16 +297,16 @@ result = sandbox.custom("fill_form", url="https://example.com/login", fields_jso
 print(result.value)
 ```
 
-## 配置说明
+### 配置说明
 
-### 环境变量
+#### 环境变量
 
 | 变量名 | 说明 | 默认值 |
 |--------|------|--------|
 | `DISPLAY` | X 虚拟帧缓冲显示编号 | `:99` |
 | `PLAYWRIGHT_BROWSERS_PATH` | 浏览器安装路径 | `/ms-playwright` |
 
-### Headless 与 Headed 模式
+#### Headless 与 Headed 模式
 
 默认以 headless 模式运行（无需 GUI）。如需 headed 模式，请先启动 Xvfb：
 
@@ -148,7 +314,7 @@ print(result.value)
 Xvfb :99 -screen 0 1920x1080x24 &
 ```
 
-## 注意事项
+### 注意事项
 
 - **持久化浏览器实例**：模板使用模块级 Playwright 单例，首次调用时创建，后续命令复用同一实例，性能远优于每次创建/销毁。
 - **内存消耗**：浏览器运行时内存消耗较大，建议保持 4096 MB 以上配置。
